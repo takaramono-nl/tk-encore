@@ -44,6 +44,32 @@ encore run --campaign 42 --yes       # compute, send, and close
 `~/.local/share/encore/encore.db`. Everything can be overridden with flags or
 environment variables.
 
+## Listing the cohort
+
+`--print-emails` writes the cohort to stdout as bare addresses, one per line,
+and sends the usual report to stderr. It requires `--dry-run`, so it never
+creates a cohort and never talks to listmonk beyond computing the cohort:
+
+```sh
+encore run --campaign 42 --dry-run --print-emails > cohort-42.txt
+```
+
+Review the file, send from listmonk by hand, then record the recipients so a
+later `run` will not include them:
+
+```sh
+encore backfill --campaign 42 --emails cohort-42.txt --dry-run   # preview
+encore backfill --campaign 42 --emails cohort-42.txt
+```
+
+`encore status --cohort 7 --print-emails` does the same for a cohort already in
+the local ledger, without contacting listmonk. Both outputs are exactly what
+`backfill --emails` accepts; `--emails -` reads the same format from stdin.
+
+Backfilling marks those subscribers as served, so only do it after the manual
+send has actually happened. If you backfill a cohort you never sent, Encore
+will never offer those addresses again.
+
 ## Monitoring new subscribers
 
 listmonk does not emit a webhook when a subscriber registers or confirms a
@@ -162,11 +188,11 @@ batch.
 | Command | Description |
 | --- | --- |
 | `encore init` | Write config, test credentials, create the ledger |
-| `encore run --campaign 42 [--dry-run] [--min-new N] [--yes] [--list 5] [--since ...]` | Compute the cohort, send if it meets the threshold, and close |
+| `encore run --campaign 42 [--dry-run] [--print-emails] [--min-new N] [--yes] [--list 5] [--since ...]` | Compute the cohort, send if it meets the threshold, and close |
 | `encore run --campaign 42 --resume` | Continue an unfinished cohort |
 | `encore run --campaign 42 --abandon` | Cancel the resend and drop the cohort without recording it |
 | `encore backfill --campaign 42 (--emails FILE \| --email ADDR...) [--dry-run] [--skip-unknown]` | Mark subscribers who already received the campaign as served |
-| `encore status [--cohort 7] [--json]` | Cohort state and progress |
+| `encore status [--cohort 7 [--print-emails]] [--json]` | Cohort state and progress |
 
 `run` is the only writer of cohort state. On success it records the ledger,
 clears the pending list, archives it, and marks the cohort closed. If a
@@ -195,6 +221,10 @@ passed. Rows are written with `served_via = 'backfill'` and are idempotent on
 Backfill refuses while an unfinished cohort exists for the campaign, because
 that cohort's member list is already frozen and the new ledger rows would not
 remove anyone from it. Finish or `--abandon` the cohort first.
+
+An `--emails` file or stream that contains no addresses is a successful no-op,
+so piping `encore run --dry-run --print-emails` straight into
+`encore backfill --emails -` does not fail on an empty cohort.
 
 ## Exit codes
 

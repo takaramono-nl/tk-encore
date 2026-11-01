@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 use serde::Serialize;
 
 use crate::store::Cohort;
@@ -161,6 +163,38 @@ pub fn render_cohort_detail(c: &Cohort, member_count: i64) -> String {
     )
 }
 
+/// One bare address per line, as consumed by `encore backfill --emails`.
+pub fn render_emails<'a, I>(emails: I) -> String
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut out = String::new();
+    for email in emails {
+        out.push_str(email);
+        out.push('\n');
+    }
+    out
+}
+
+/// Write bare addresses to stdout. A broken pipe (`| head`) stops cleanly,
+/// because this stream exists to be piped into `encore backfill`.
+pub fn write_emails<'a, I>(emails: I) -> io::Result<()>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for email in emails {
+        if let Err(e) = writeln!(out, "{email}") {
+            if e.kind() == io::ErrorKind::BrokenPipe {
+                return Ok(());
+            }
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
 fn num(n: i64) -> String {
     let digits = n.abs().to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
@@ -179,6 +213,16 @@ fn num(n: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emails_are_bare_lines() {
+        assert_eq!(
+            render_emails(["a@example.com", "b@example.com"]),
+            "a@example.com\nb@example.com\n"
+        );
+        assert_eq!(render_emails(["a@example.com"]), "a@example.com\n");
+        assert_eq!(render_emails(Vec::<&str>::new()), "");
+    }
 
     #[test]
     fn numbers_get_thousands_separators() {
