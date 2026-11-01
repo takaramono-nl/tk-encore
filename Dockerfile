@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.99-alpine AS build
+FROM rust:1.94-alpine AS build
 RUN apk add --no-cache build-base cmake perl
 WORKDIR /src
 
@@ -27,6 +27,6 @@ RUN mkdir -p /data
 ENV ENCORE_DB=/data/encore.db
 WORKDIR /data
 
-# Encore is a batch CLI, not a server. Stay alive so Coolify can exec
-# scheduled tasks into the container; the ledger lives on /data.
+# Encore is a batch CLI, not a server. Stay alive so an external scheduler can
+# exec tasks into the container; the ledger lives on /data.
 CMD ["sleep", "infinity"]
