@@ -1,0 +1,12 @@
+# Local-only fixtures for the Docker Compose dev stack. These are deliberately
+# committed so `make dev-init` works out of the box; they are not secrets.
+[[allowlists]]
+description = "dev stack fixtures"
+paths = [
+    '''dev/encore\.env''',
+    '''dev/seed\.sql''',
+    '''docker-compose\.dev\.yml''',
+    '''Makefile''',
+    '''README\.md''',
+    '''SECURITY\.md''',
+]
