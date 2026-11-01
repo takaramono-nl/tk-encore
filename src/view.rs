@@ -51,6 +51,51 @@ pub fn render_run(r: &RunReport) -> String {
     out
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BackfillReport {
+    pub campaign_id: i64,
+    pub campaign_name: String,
+    pub campaign_uuid: String,
+    pub requested: usize,
+    pub resolved: usize,
+    pub already_served: usize,
+    pub pending: usize,
+    pub recorded: usize,
+    pub unknown: Vec<String>,
+    pub dry_run: bool,
+}
+
+pub fn render_backfill(r: &BackfillReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "campaign {}  \"{}\"\n",
+        r.campaign_id, r.campaign_name
+    ));
+    out.push_str(&format!("ledger key    {}\n", r.campaign_uuid));
+    out.push_str("strategy      backfill\n");
+    out.push_str("────────────────────────────────────────────────\n");
+    out.push_str(&format!("requested      {}\n", num(r.requested as i64)));
+    out.push_str(&format!("resolved       {}\n", num(r.resolved as i64)));
+    out.push_str(&format!(
+        "already served {}\n",
+        num(r.already_served as i64)
+    ));
+    if r.dry_run {
+        out.push_str(&format!("would record   {}\n", num(r.pending as i64)));
+        out.push_str("mode           dry run (nothing written)\n");
+    } else {
+        out.push_str(&format!("recorded       {}\n", num(r.recorded as i64)));
+    }
+    if !r.unknown.is_empty() {
+        out.push_str(&format!(
+            "unknown        {} (skipped): {}\n",
+            r.unknown.len(),
+            r.unknown.join(", ")
+        ));
+    }
+    out
+}
+
 pub fn render_cohorts(cohorts: &[Cohort]) -> String {
     if cohorts.is_empty() {
         return "no cohorts yet\n".to_string();

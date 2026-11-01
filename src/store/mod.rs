@@ -288,28 +288,65 @@ impl Store {
         campaign_uuid: &str,
         campaign: CampaignId,
         members: &[Member],
-    ) -> Result<()> {
+    ) -> Result<usize> {
+        self.record_served(campaign_uuid, campaign, members, "resend")
+            .await
+    }
+
+    /// Record subscribers who already received the campaign outside Encore,
+    /// such as recipients of listmonk's "Send test" feature.
+    pub async fn record_backfill(
+        &self,
+        campaign_uuid: &str,
+        campaign: CampaignId,
+        members: &[Member],
+    ) -> Result<usize> {
+        self.record_served(campaign_uuid, campaign, members, "backfill")
+            .await
+    }
+
+    async fn record_served(
+        &self,
+        campaign_uuid: &str,
+        campaign: CampaignId,
+        members: &[Member],
+        served_via: &str,
+    ) -> Result<usize> {
         let at = now();
         let mut tx = self.pool.begin().await?;
+        let mut inserted = 0usize;
 
         for m in members {
-            sqlx::query(
+            let res = sqlx::query(
                 "INSERT INTO ledger (
                     campaign_uuid, subscriber_id, campaign_id, email, served_via, recorded_at
-                 ) VALUES (?, ?, ?, ?, 'resend', ?)
+                 ) VALUES (?, ?, ?, ?, ?, ?)
                  ON CONFLICT(campaign_uuid, subscriber_id) DO NOTHING",
             )
             .bind(campaign_uuid)
             .bind(m.subscriber_id)
             .bind(campaign.0)
             .bind(&m.email)
+            .bind(served_via)
             .bind(&at)
             .execute(&mut *tx)
             .await?;
+            inserted += res.rows_affected() as usize;
         }
 
         tx.commit().await?;
-        Ok(())
+        Ok(inserted)
+    }
+
+    /// Subscriber IDs already recorded as served for a campaign UUID.
+    pub async fn served_ids(&self, campaign_uuid: &str) -> Result<HashSet<i64>> {
+        let rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT subscriber_id FROM ledger WHERE campaign_uuid = ?")
+                .bind(campaign_uuid)
+                .fetch_all(&self.pool)
+                .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }
 
@@ -389,5 +426,39 @@ mod tests {
 
         store.close(first, state::CLOSED).await.unwrap();
         assert!(store.insert_cohort(new()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn backfill_is_idempotent_and_keeps_its_via() {
+        let (_dir, store) = store().await;
+        let members = vec![member(1), member(2)];
+
+        assert_eq!(
+            store
+                .record_backfill("uuid-42", CampaignId(42), &members)
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            store
+                .record_backfill("uuid-42", CampaignId(42), &members)
+                .await
+                .unwrap(),
+            0
+        );
+
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT subscriber_id, served_via FROM ledger
+             WHERE campaign_uuid = 'uuid-42' ORDER BY subscriber_id",
+        )
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+        assert_eq!(rows, vec![(1, "backfill".into()), (2, "backfill".into())]);
+
+        let served = store.served_ids("uuid-42").await.unwrap();
+        assert_eq!(served.len(), 2);
+        assert!(served.contains(&1) && served.contains(&2));
     }
 }

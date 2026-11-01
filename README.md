@@ -109,7 +109,9 @@ subscribers 101–109:
 
 `make e2e` resets the demo data and the local ledger, runs `run` three times,
 and asserts 2 then 1 recipients, 3 messages in Mailpit, archived pending lists,
-and that 109 never receives anything. The fixed dev credentials are local-only.
+and that 109 never receives anything. It then verifies that `backfill` marks two
+recipients as served and shrinks the next dry-run cohort to one. The fixed dev
+credentials are local-only.
 
 ## How the cohort is chosen
 
@@ -160,13 +162,36 @@ batch.
 | `encore run --campaign 42 [--dry-run] [--min-new N] [--yes] [--list 5] [--since ...]` | Compute the cohort, send if it meets the threshold, and close |
 | `encore run --campaign 42 --resume` | Continue an unfinished cohort |
 | `encore run --campaign 42 --abandon` | Cancel the resend and drop the cohort without recording it |
+| `encore backfill --campaign 42 (--emails FILE \| --email ADDR...) [--dry-run] [--skip-unknown]` | Mark subscribers who already received the campaign as served |
 | `encore status [--cohort 7] [--json]` | Cohort state and progress |
 
-`run` is the only writer. On success it records the ledger, clears the pending
-list, archives it, and marks the cohort closed. If a previous run finished but
-was not closed, the next `run` closes it before starting a new wave. A normal
-close records the ledger only when the campaign handed off at least one
-message, so a total failure remains retryable.
+`run` is the only writer of cohort state. On success it records the ledger,
+clears the pending list, archives it, and marks the cohort closed. If a
+previous run finished but was not closed, the next `run` closes it before
+starting a new wave. A normal close records the ledger only when the campaign
+handed off at least one message, so a total failure remains retryable.
+
+## Marking manual sends as served
+
+listmonk's **Send test** control does not record which subscribers received the
+message, so Encore cannot see those sends and would include the recipients in a
+later cohort. Seed the ledger before the first real run:
+
+```sh
+encore backfill --campaign 42 --emails served.txt
+encore backfill --campaign 42 --email alice@example.com --email bob@example.com
+encore backfill --campaign 42 --emails served.txt --dry-run
+```
+
+`--emails` reads one address per line and ignores blank lines and `#` comments;
+use `-` for stdin. Every address must resolve to an existing listmonk
+subscriber: unknown addresses abort the whole run unless `--skip-unknown` is
+passed. Rows are written with `served_via = 'backfill'` and are idempotent on
+`(campaign_uuid, subscriber_id)`.
+
+Backfill refuses while an unfinished cohort exists for the campaign, because
+that cohort's member list is already frozen and the new ledger rows would not
+remove anyone from it. Finish or `--abandon` the cohort first.
 
 ## Exit codes
 
@@ -213,13 +238,15 @@ db = "/home/me/.local/share/encore/encore.db"
 
 - listmonk has no delivery ledger. `sent` means "handed to the messenger", not
   "arrived". Opens and clicks are only positive evidence of receipt.
+- listmonk's test sends leave no per-subscriber record; use `encore backfill` to
+  mark their recipients as served.
 - If tracking is disabled, `campaign_views`/`link_clicks` are empty, so the
   exclusions rely on membership dates and Encore's own ledger.
 - The cutoff is conservative by design; subscribers who joined while the
   original campaign was still sending are not included.
 - An abandoned run leaves the draft/finished clone in listmonk; it is tagged
   `encore:resend` and `encore-cohort-<id>` for cleanup.
-- `serve`, `reconcile`, `gc`, and `backfill` are not in this slice.
+- `serve`, `reconcile`, and `gc` are not in this slice.
 
 ## Deviations from `PLAN.md`
 

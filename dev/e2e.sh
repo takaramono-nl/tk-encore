@@ -127,4 +127,31 @@ printf '%s' "$out" | grep -q "nothing sent" || fail "expected 'nothing sent': $o
 [ "$(mailpit_total)" = "3" ] || fail "run 4 sent mail"
 echo "$out"
 
+say "backfill (manual sends already served)"
+rm -f "$ENCORE_DB" "$ENCORE_DB-shm" "$ENCORE_DB-wal"
+
+out=$($ENCORE backfill --campaign 420 \
+    --email New1@Example.com --email new2@example.com --json)
+printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["requested"] == 2, d
+assert d["resolved"] == 2, d
+assert d["recorded"] == 2, d
+'
+
+out=$($ENCORE backfill --campaign 420 \
+    --email new1@example.com --email new2@example.com --json)
+printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["recorded"] == 0, d
+assert d["already_served"] == 2, d
+'
+
+plan=$($ENCORE run --campaign 420 --min-new 1 --dry-run --json)
+recipients=$(printf '%s' "$plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["recipients"])')
+[ "$recipients" = "1" ] || fail "expected 1 recipient after backfill, got $recipients"
+echo "recipients after backfill: $recipients"
+
 say "OK"

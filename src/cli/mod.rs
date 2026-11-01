@@ -1,3 +1,4 @@
+pub mod backfill;
 pub mod init;
 pub mod run;
 pub mod status;
@@ -59,6 +60,8 @@ pub enum Command {
     Init(init::InitArgs),
     /// Compute the cohort, send if enough new subscribers, and close
     Run(run::RunArgs),
+    /// Mark subscribers as already served (manual or listmonk test sends)
+    Backfill(backfill::BackfillArgs),
     /// Show cohorts and progress
     Status(status::StatusArgs),
 }
@@ -84,6 +87,7 @@ pub async fn run(cli: Cli) -> Result<i32> {
     match cli.command {
         Command::Init(args) => init::run(cfg, json, args).await,
         Command::Run(args) => run::run(cfg, json, args).await,
+        Command::Backfill(args) => backfill::run(cfg, json, args).await,
         Command::Status(args) => status::run(cfg, json, args).await,
     }
 }
