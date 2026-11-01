@@ -1,5 +1,8 @@
 # Encore
 
+[![ci](https://github.com/takaramono-nl/tk-encore/actions/workflows/ci.yml/badge.svg)](https://github.com/takaramono-nl/tk-encore/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Resend a past listmonk campaign to subscribers who joined after it was sent.
 
 Encore is a standalone Rust binary with its own SQLite ledger. It does not fork
@@ -248,14 +251,14 @@ db = "/home/me/.local/share/encore/encore.db"
   `encore:resend` and `encore-cohort-<id>` for cleanup.
 - `serve`, `reconcile`, and `gc` are not in this slice.
 
-## Deviations from `PLAN.md`
+## Design decisions
 
 - Default strategy is `since` (new members minus known receivers), not `ledger`.
   `ledger` alone cannot cover campaigns sent before Encore existed.
 - SQLite only. The ledger is local; listmonk's own database choice is
   irrelevant. Runtime `sqlx::query` is used instead of `query!`.
 - File locking uses the stable `std::fs::File::try_lock` API; the `fs4`
-  dependency is not needed on Rust 1.99.
+  dependency is not needed on Rust 1.94.
 - The schema adds `source_list_ids` and removes the `UNIQUE(campaign_id,
   strategy)` constraint in favour of a partial unique index on open cohorts, so
   the same campaign can be resent again for a later wave.
@@ -276,3 +279,7 @@ The unit/contract suite covers the query builder, the SQLite store, API
 payloads, pagination, and the full run pipeline (including the below-threshold
 no-write path) against a wiremock listmonk. `make e2e` runs the same flow
 against the real listmonk v6.2 dev stack.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
