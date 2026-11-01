@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.94"
 description = "Resend-cohort orchestrator for listmonk"
+license    = "MIT"
+authors    = ["Takaramono"]
+repository = "https://github.com/takaramono-nl/tk-encore"
+homepage   = "https://github.com/takaramono-nl/tk-encore"
+keywords   = ["listmonk", "newsletter", "email", "cli"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "encore"
