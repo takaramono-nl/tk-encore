@@ -41,11 +41,35 @@ pub async fn run(cfg: Config, json: bool, args: BackfillArgs) -> Result<i32> {
 }
 
 pub async fn execute(app: App, json: bool, args: BackfillArgs) -> Result<i32> {
+    let supplied = args.emails.is_some() || !args.email.is_empty();
     let emails = collect_emails(&args)?;
     if emails.is_empty() {
-        return Err(EncoreError::Preflight(
-            "no email addresses supplied; use --emails FILE or --email ADDR".into(),
-        ));
+        if !supplied {
+            return Err(EncoreError::Preflight(
+                "no email addresses supplied; use --emails FILE or --email ADDR".into(),
+            ));
+        }
+
+        // An empty file or stream is a successful no-op, so
+        // `encore run --dry-run --print-emails | encore backfill --emails -`
+        // stays quiet when the cohort is empty.
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "campaign_id": args.campaign,
+                    "requested": 0,
+                    "recorded": 0,
+                    "action": "none",
+                }))?
+            );
+        } else {
+            println!(
+                "campaign {}: no email addresses supplied; nothing to backfill",
+                args.campaign
+            );
+        }
+        return Ok(0);
     }
 
     let campaign_id = CampaignId(args.campaign);

@@ -28,6 +28,11 @@ pub struct RunArgs {
     #[arg(long)]
     pub dry_run: bool,
 
+    /// Print only the cohort's email addresses to stdout, one per line
+    /// (requires --dry-run)
+    #[arg(long)]
+    pub print_emails: bool,
+
     /// Skip the confirmation prompt
     #[arg(long)]
     pub yes: bool,
@@ -55,7 +60,7 @@ pub async fn run(cfg: crate::config::Config, json: bool, args: RunArgs) -> Resul
 }
 
 pub async fn execute(app: App, json: bool, args: RunArgs) -> Result<i32> {
-    validate(&args)?;
+    validate(&args, json)?;
 
     let app = Arc::new(app);
     let campaign_id = CampaignId(args.campaign);
@@ -79,10 +84,16 @@ pub async fn execute(app: App, json: bool, args: RunArgs) -> Result<i32> {
 
         if existing.state == store::state::FINISHED {
             if args.dry_run {
-                println!(
+                let message = format!(
                     "cohort {} is finished but still open; run without --dry-run to close it",
                     existing.id
                 );
+                // Keep stdout reserved for addresses when listing.
+                if args.print_emails {
+                    eprintln!("{message}");
+                } else {
+                    println!("{message}");
+                }
                 return Ok(0);
             }
             let outcome = finalize::close(&app, &existing).await?;
@@ -124,7 +135,10 @@ pub async fn execute(app: App, json: bool, args: RunArgs) -> Result<i32> {
     };
 
     if args.dry_run {
-        print_report(json, &report)?;
+        if args.print_emails {
+            view::write_emails(computed.members.iter().map(|m| m.email.as_str()))?;
+        }
+        print_report(json, &report, args.print_emails)?;
         return Ok(0);
     }
 
@@ -243,7 +257,7 @@ async fn send_and_close(
     }
 }
 
-fn validate(args: &RunArgs) -> Result<()> {
+fn validate(args: &RunArgs, json: bool) -> Result<()> {
     if args.min_new < 0 {
         return Err(EncoreError::Preflight("--min-new must be >= 0".into()));
     }
@@ -255,6 +269,16 @@ fn validate(args: &RunArgs) -> Result<()> {
     if args.dry_run && (args.resume || args.abandon) {
         return Err(EncoreError::Preflight(
             "--dry-run cannot be combined with --resume or --abandon".into(),
+        ));
+    }
+    if args.print_emails && !args.dry_run {
+        return Err(EncoreError::Preflight(
+            "--print-emails requires --dry-run".into(),
+        ));
+    }
+    if args.print_emails && json {
+        return Err(EncoreError::Preflight(
+            "--print-emails cannot be combined with --json".into(),
         ));
     }
     Ok(())
@@ -352,11 +376,16 @@ fn prompt(campaign: &Campaign, computed: &Computed) -> Result<bool> {
     ))
 }
 
-fn print_report(json: bool, report: &RunReport) -> Result<()> {
+fn print_report(json: bool, report: &RunReport, to_stderr: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(report)?);
     } else {
-        print!("{}", view::render_run(report));
+        let text = view::render_run(report);
+        if to_stderr {
+            eprint!("{text}");
+        } else {
+            print!("{text}");
+        }
     }
     Ok(())
 }
@@ -392,4 +421,43 @@ fn num(n: i64) -> String {
         out.push(ch);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args() -> RunArgs {
+        RunArgs {
+            campaign: 42,
+            min_new: 1,
+            dry_run: true,
+            print_emails: false,
+            yes: false,
+            since: None,
+            lists: vec![],
+            resume: false,
+            abandon: false,
+        }
+    }
+
+    #[test]
+    fn print_emails_requires_dry_run() {
+        let mut a = args();
+        a.dry_run = false;
+        a.print_emails = true;
+        assert!(validate(&a, false).is_err());
+
+        let mut a = args();
+        a.print_emails = true;
+        assert!(validate(&a, false).is_ok());
+    }
+
+    #[test]
+    fn print_emails_rejects_json() {
+        let mut a = args();
+        a.print_emails = true;
+        assert!(validate(&a, true).is_err());
+        assert!(validate(&a, false).is_ok());
+    }
 }

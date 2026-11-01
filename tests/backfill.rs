@@ -8,9 +8,11 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use encore_listmonk::app::App;
 use encore_listmonk::cli::backfill::{BackfillArgs, execute};
+use encore_listmonk::cohort;
 use encore_listmonk::config::{AuthMode, Config};
 use encore_listmonk::model::CampaignId;
 use encore_listmonk::store;
+use encore_listmonk::view;
 
 fn campaign() -> serde_json::Value {
     json!({
@@ -174,6 +176,74 @@ async fn backfill_refuses_unknown_subscribers() {
         .await
         .unwrap();
     assert!(store.served_ids("uuid-42").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn empty_email_source_is_a_noop_success() {
+    let server = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let app = App::load(config(&server, &dir), true).await.unwrap();
+
+    let path = dir.path().join("empty.txt");
+    std::fs::write(&path, "# nothing to do\n\n").unwrap();
+
+    let mut a = args(false);
+    a.email.clear();
+    a.emails = Some(path);
+
+    assert_eq!(execute(app, false, a).await.unwrap(), 0);
+
+    let store = store::Store::open(&dir.path().join("encore.db"))
+        .await
+        .unwrap();
+    assert!(store.served_ids("uuid-42").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn dry_run_listing_round_trips_into_backfill() {
+    let server = MockServer::start().await;
+    mount_campaign(&server).await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/subscribers"))
+        .and(query_param("list_id", "5"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {
+                "results": both_subscribers(),
+                "total": 2,
+                "page": 1,
+                "per_page": 1000
+            }
+        })))
+        .mount(&server)
+        .await;
+    mount_lookup(&server, both_subscribers()).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let app = App::load(config(&server, &dir), true).await.unwrap();
+
+    let campaign = app.api.campaign(CampaignId(42)).await.unwrap();
+    let computed = cohort::compute(&app.api, &campaign, &[5], None, &HashSet::new())
+        .await
+        .unwrap();
+    let listing = view::render_emails(computed.members.iter().map(|m| m.email.as_str()));
+    assert_eq!(listing, "a@example.com\nb@example.com\n");
+
+    let path = dir.path().join("cohort.txt");
+    std::fs::write(&path, listing).unwrap();
+
+    let mut a = args(false);
+    a.email.clear();
+    a.emails = Some(path);
+    assert_eq!(execute(app, false, a).await.unwrap(), 0);
+
+    let store = store::Store::open(&dir.path().join("encore.db"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store.served_ids("uuid-42").await.unwrap(),
+        HashSet::from([1, 2])
+    );
 }
 
 #[tokio::test]

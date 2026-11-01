@@ -76,6 +76,7 @@ fn args(campaign_id: i64, min_new: i64) -> RunArgs {
         campaign: campaign_id,
         min_new,
         dry_run: false,
+        print_emails: false,
         yes: true,
         since: None,
         lists: vec![],
@@ -382,5 +383,58 @@ async fn below_threshold_creates_no_cohort() {
             .iter()
             .any(|r| r.method.as_str() == "POST" && r.url.path() == "/api/lists"),
         "no pending list should be created below the threshold"
+    );
+}
+
+#[tokio::test]
+async fn dry_run_print_emails_list_without_writing() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/campaigns/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(source_campaign()))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/subscribers"))
+        .and(query_param("list_id", "5"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {
+                "results": [
+                    {"id": 1, "email": "a@example.com"},
+                    {"id": 2, "email": "b@example.com"}
+                ],
+                "total": 2,
+                "page": 1,
+                "per_page": 1000
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let app = App::load(config(&server, &dir), false).await.unwrap();
+
+    let mut listing = args(42, 1);
+    listing.dry_run = true;
+    listing.print_emails = true;
+    assert_eq!(execute(app, false, listing).await.unwrap(), 0);
+
+    let store = store::Store::open(&dir.path().join("encore.db"))
+        .await
+        .unwrap();
+    assert!(store.cohorts().await.unwrap().is_empty());
+
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        !requests.iter().any(|r| r.method.as_str() == "POST"),
+        "a listing must not create lists or campaigns"
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|r| r.method.as_str() == "PUT" && r.url.path() == "/api/subscribers/lists"),
+        "a listing must not add members to a list"
     );
 }
