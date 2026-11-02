@@ -19,7 +19,11 @@ impl Client {
             .get_json(
                 "find campaign by tag",
                 "/api/campaigns",
-                &[("tags", tag.to_string()), ("per_page", "all".to_string())],
+                &[
+                    ("tag", tag.to_string()),
+                    ("per_page", "all".to_string()),
+                    ("no_body", "true".to_string()),
+                ],
             )
             .await?;
 
@@ -76,7 +80,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/api/campaigns"))
-            .and(query_param("tags", "encore-cohort-7"))
+            .and(query_param("tag", "encore-cohort-7"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
                     "results": [
@@ -97,5 +101,57 @@ mod tests {
             .unwrap();
 
         assert_eq!(found.id, 21);
+    }
+
+    #[tokio::test]
+    async fn tag_lookup_tolerates_deleted_list_and_media_refs() {
+        let server = MockServer::start().await;
+
+        // listmonk serializes deleted list/media references from
+        // campaign_lists/campaign_media as `"id": null`, including for
+        // campaigns that do not match the requested tag.
+        Mock::given(method("GET"))
+            .and(path("/api/campaigns"))
+            .and(query_param("tag", "encore-cohort-7"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "results": [
+                        {
+                            "id": 18,
+                            "name": "deleted list",
+                            "subject": "s",
+                            "tags": ["other"],
+                            "lists": [{"id": null, "name": "gone"}]
+                        },
+                        {
+                            "id": 21,
+                            "name": "resend again",
+                            "subject": "s",
+                            "tags": ["encore-cohort-7"],
+                            "lists": [
+                                {"id": null, "name": "gone"},
+                                {"id": 5, "name": "Newsletter"}
+                            ],
+                            "media": [{"id": null, "filename": "gone.png"}]
+                        }
+                    ],
+                    "total": 2
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let found = client(&server)
+            .campaign_by_tag("encore-cohort-7")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(found.id, 21);
+        assert_eq!(found.source_list_ids(), vec![5]);
+        assert_eq!(
+            found.media.iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec![0]
+        );
     }
 }

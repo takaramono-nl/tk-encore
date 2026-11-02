@@ -161,7 +161,7 @@ async fn run_sends_closes_and_records_the_ledger() {
     // No campaign with this cohort tag exists yet.
     Mock::given(method("GET"))
         .and(path("/api/campaigns"))
-        .and(query_param("tags", "encore-cohort-1"))
+        .and(query_param("tag", "encore-cohort-1"))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(json!({"data": {"results": [], "total": 0}})),
         )
