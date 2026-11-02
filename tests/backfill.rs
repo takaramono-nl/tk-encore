@@ -171,6 +171,7 @@ async fn backfill_refuses_unknown_subscribers() {
     let err = execute(app, false, args(false)).await.unwrap_err();
     assert_eq!(err.exit_code(), 2);
     assert!(err.to_string().contains("not listmonk subscribers"));
+    assert!(err.to_string().contains("subscribers:get_all"));
 
     let store = store::Store::open(&dir.path().join("encore.db"))
         .await

@@ -13,11 +13,32 @@ list" that acts as the durable marker of "still owed this mail".
 
 - listmonk **v6.2+** (built and tested against v6.2.0; v7 should work but is
   untested)
-- An API user with these permissions:
+- An API user with these user-role permissions:
   - `campaigns:get`, `campaigns:manage`, `campaigns:send`
-  - `lists:manage`
-  - `subscribers:manage`
+  - `lists:get_all`, `lists:manage_all`
+  - `subscribers:get_all`, `subscribers:manage`
   - `subscribers:sql_query` (required for the cohort query expression)
+
+`campaigns:get` and `campaigns:manage` are still scoped to the API user's
+permitted lists, so the blanket list permissions are required too.
+`lists:manage_all` is needed to create Encore's `encore/...` lists, and
+`lists:get_all` is needed to find and read them. `subscribers:get_all` is
+required for `backfill` lookups and to see subscribers outside per-list roles.
+`subscribers:sql_query` authorizes the query expression but does not bypass list
+scoping.
+
+### Permission mapping
+
+| Encore operation | Endpoint | Permission |
+| --- | --- | --- |
+| Read campaigns | `GET /api/campaigns[/:id]` | `campaigns:get` + list access |
+| Create resend campaign | `POST /api/campaigns` | `campaigns:manage` + list access |
+| Start campaign | `PUT /api/campaigns/:id/status` | `campaigns:send` + list access |
+| Find/read lists | `GET /api/lists[/:id]` | `lists:get_all` or per-list get role |
+| Create pending list | `POST /api/lists` | `lists:manage_all` |
+| Archive list | `PUT /api/lists/:id` | `lists:manage_all` or per-list manage role |
+| Resolve/query subscribers | `GET /api/subscribers` | `subscribers:get_all` (or `subscribers:get` + list roles) + `subscribers:sql_query` |
+| Add/remove list members | `PUT /api/subscribers/lists` | `subscribers:manage` + list manage |
 
 ## Build
 
@@ -213,10 +234,10 @@ encore backfill --campaign 42 --emails served.txt --dry-run
 ```
 
 `--emails` reads one address per line and ignores blank lines and `#` comments;
-use `-` for stdin. Every address must resolve to an existing listmonk
-subscriber: unknown addresses abort the whole run unless `--skip-unknown` is
-passed. Rows are written with `served_via = 'backfill'` and are idempotent on
-`(campaign_uuid, subscriber_id)`.
+use `-` for stdin. Every address must resolve to an existing listmonk subscriber
+visible to the API user: unknown addresses abort the whole run unless
+`--skip-unknown` is passed. Rows are written with `served_via = 'backfill'` and
+are idempotent on `(campaign_uuid, subscriber_id)`.
 
 Backfill refuses while an unfinished cohort exists for the campaign, because
 that cohort's member list is already frozen and the new ledger rows would not
@@ -225,6 +246,23 @@ remove anyone from it. Finish or `--abandon` the cohort first.
 An `--emails` file or stream that contains no addresses is a successful no-op,
 so piping `encore run --dry-run --print-emails` straight into
 `encore backfill --emails -` does not fail on an empty cohort.
+
+### "not listmonk subscribers" but the address exists
+
+`backfill` resolves addresses through `/api/subscribers` as the API user, and
+listmonk scopes that endpoint to the user's permitted lists. If the API user
+lacks `subscribers:get_all` and has no list role for the subscriber's list, the
+API returns zero rows even though the admin UI shows the subscriber.
+
+Grant `subscribers:get_all` (or a get list role for the relevant list) and retry.
+To confirm what the API user can see:
+
+```sh
+curl -s -u "$ENCORE_LISTMONK_USER:$ENCORE_LISTMONK_TOKEN" \
+  --get "$ENCORE_LISTMONK_URL/api/subscribers" \
+  --data-urlencode "query=LOWER(subscribers.email) IN ('the-address@example.com')" \
+  --data "page=1" --data "per_page=100"
+```
 
 ## Exit codes
 

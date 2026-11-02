@@ -30,7 +30,7 @@ pub struct BackfillArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Skip addresses that are not existing listmonk subscribers
+    /// Skip addresses that do not resolve to listmonk subscribers visible to the API user
     #[arg(long)]
     pub skip_unknown: bool,
 }
@@ -117,7 +117,9 @@ pub async fn execute(app: App, json: bool, args: BackfillArgs) -> Result<i32> {
 
     if !unknown.is_empty() && !args.skip_unknown {
         return Err(EncoreError::Preflight(format!(
-            "{} email(s) are not listmonk subscribers: {}{}; fix them or pass --skip-unknown",
+            "{} email(s) are not listmonk subscribers: {}{}; if they are visible \
+             in the listmonk admin UI, grant the API user subscribers:get_all or \
+             access to their lists; fix them or pass --skip-unknown",
             unknown.len(),
             unknown
                 .iter()
