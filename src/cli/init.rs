@@ -51,7 +51,9 @@ pub async fn run(cfg: Config, json: bool, args: InitArgs) -> Result<i32> {
         println!();
         println!("Required listmonk API user permissions:");
         println!("  campaigns:get, campaigns:manage, campaigns:send,");
-        println!("  lists:manage, subscribers:manage, subscribers:sql_query");
+        println!("  lists:get_all, lists:manage_all,");
+        println!("  subscribers:get_all, subscribers:manage,");
+        println!("  subscribers:sql_query");
     }
 
     Ok(0)

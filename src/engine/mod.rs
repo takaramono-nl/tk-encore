@@ -258,8 +258,8 @@ impl Pipeline<Running> {
                     let summary = summary(&campaign, cid, self.members.len() as i64);
                     if campaign.to_send > 0 && campaign.sent < campaign.to_send {
                         return Err(EncoreError::PartialSend(format!(
-                            "campaign {} finished with sent={} of to_send={}; rerun `encore run --campaign {} --resume` to finish the cohort",
-                            campaign.id, campaign.sent, campaign.to_send, self.cohort.campaign_id
+                            "campaign {} finished with sent={} of to_send={}; closing the cohort; inspect listmonk for recipients that were skipped",
+                            campaign.id, campaign.sent, campaign.to_send
                         )));
                     }
                     return Ok(summary);
