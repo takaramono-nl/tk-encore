@@ -2,7 +2,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use chrono::{DateTime, FixedOffset};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Newtype identifiers. These stop silent argument swaps between the three
 /// integer IDs the pipeline juggles.
@@ -63,8 +63,21 @@ pub struct Page<T> {
     pub per_page: i64,
 }
 
+/// listmonk's campaign stats serialize `campaign_lists.list_id` and
+/// `campaign_media.media_id` raw, and both columns are nullable with
+/// `ON DELETE SET NULL`. A campaign that references a since-deleted list or
+/// attachment therefore contains `"id": null`. Treat that like listmonk's own
+/// campaign query, which coalesces deleted references to `0`.
+fn null_id_as_zero<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<i64>::deserialize(deserializer)?.unwrap_or(0))
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ListRef {
+    #[serde(default, deserialize_with = "null_id_as_zero")]
     pub id: i64,
     #[serde(default)]
     pub name: String,
@@ -72,6 +85,7 @@ pub struct ListRef {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MediaRef {
+    #[serde(default, deserialize_with = "null_id_as_zero")]
     pub id: i64,
     #[serde(default)]
     pub filename: String,
@@ -205,7 +219,12 @@ impl NewCampaign {
             tags,
             headers: source.headers.clone(),
             attribs: source.attribs.clone(),
-            media: source.media.iter().map(|m| m.id).collect(),
+            media: source
+                .media
+                .iter()
+                .map(|m| m.id)
+                .filter(|id| *id > 0)
+                .collect(),
         }
     }
 }
@@ -383,6 +402,28 @@ mod tests {
         });
         let c: Campaign = serde_json::from_value(raw).unwrap();
         assert_eq!(c.template_id, None);
+    }
+
+    #[test]
+    fn campaign_accepts_deleted_list_and_media_refs() {
+        let raw = serde_json::json!({
+            "id": 420,
+            "name": "October Dispatch",
+            "subject": "Hello",
+            "lists": [
+                {"id": null, "name": "gone"},
+                {"id": 5, "name": "Newsletter"}
+            ],
+            "media": [
+                {"id": null, "filename": "gone.png"},
+                {"id": 9, "filename": "hero.png"}
+            ]
+        });
+        let c: Campaign = serde_json::from_value(raw).unwrap();
+
+        assert_eq!(c.source_list_ids(), vec![5]);
+        let resend = NewCampaign::resend(&c, ListId(12), CohortId(7));
+        assert_eq!(resend.media, vec![9]);
     }
 
     #[test]
