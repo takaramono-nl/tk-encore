@@ -58,10 +58,10 @@ cargo build --release --locked
 Tagged releases publish a Linux/amd64 image to GitHub Container Registry:
 
 ```sh
-docker pull ghcr.io/takaramono-nl/tk-encore:0.2.0
+docker pull ghcr.io/takaramono-nl/tk-encore:0.2.1
 ```
 
-Tagged releases provide `:0.2.0`, `:0.2`, and `:latest`; each build also gets a
+Tagged releases provide `:0.2.1`, `:0.2`, and `:latest`; each build also gets a
 `:sha-...` tag. The image pre-sets `ENCORE_DB=/data/encore.db`, so mount a
 volume at `/data` to keep the ledger:
 
@@ -72,13 +72,13 @@ docker run --rm -v encore-data:/data \
   -e ENCORE_LISTMONK_URL="https://listmonk.example.com" \
   -e ENCORE_LISTMONK_USER="encore" \
   -e ENCORE_LISTMONK_TOKEN="..." \
-  ghcr.io/takaramono-nl/tk-encore:0.2.0 init
+  ghcr.io/takaramono-nl/tk-encore:0.2.1 init
 
 docker run --rm -v encore-data:/data \
   -e ENCORE_LISTMONK_URL="https://listmonk.example.com" \
   -e ENCORE_LISTMONK_USER="encore" \
   -e ENCORE_LISTMONK_TOKEN="..." \
-  ghcr.io/takaramono-nl/tk-encore:0.2.0 run --campaign 42 --dry-run
+  ghcr.io/takaramono-nl/tk-encore:0.2.1 run --campaign 42 --dry-run
 ```
 
 The image is a batch CLI, not a server. Its default command is `sleep infinity`,
